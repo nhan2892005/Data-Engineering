@@ -1,0 +1,1 @@
+![System Design](Images/system_arch.png)
