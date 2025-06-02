@@ -10,33 +10,43 @@ object MigrateToPostgres {
 
     df
       // Flatten author (struct)
-      .withColumn("author_name", col("author.name"))
-      .withColumn("author_email", col("author.email"))
-      .withColumn("author_time_sec", col("author.time_sec"))
-      .withColumn("author_tz_offset", col("author.tz_offset"))
-      .withColumn("author_date", col("author.date"))
+      .withColumn("author_name", col("author_name"))
+      .withColumn("author_email", col("author_email"))
+      .withColumn("author_time_sec", col("author_time_sec"))
+      .withColumn("author_tz_offset", col("author_tz_offset"))
+      .withColumn("author_date", col("author_date"))
 
       // Flatten committer (struct)
-      .withColumn("committer_name", col("committer.name"))
-      .withColumn("committer_email", col("committer.email"))
-      .withColumn("committer_time_sec", col("committer.time_sec"))
-      .withColumn("committer_tz_offset", col("committer.tz_offset"))
-      .withColumn("committer_date", col("committer.date"))
-
-      // Flatten parent (array<string>) → parent_0, parent_1,...
-      .withColumn("parent", expr("transform(parent, x -> x)"))
-      .withColumn("parent_str", concat_ws(",", col("parent")))
-      .withColumn("parent_0", element_at(col("parent"), 1))
-      .withColumn("parent_1", element_at(col("parent"), 2))
+      .withColumn("committer_name", col("committer_name"))
+      .withColumn("committer_email", col("committer_email"))
+      .withColumn("committer_time_sec", col("committer_time_sec"))
+      .withColumn("committer_tz_offset", col("committer_tz_offset"))
+      .withColumn("committer_date", col("committer_date"))
 
       // Flatten trailer (array<struct>) → json string
-      .withColumn("trailer_json", to_json(col("trailer")))
+      .withColumn("trailer_json", to_json(struct(
+        col("trailer_key"), 
+        col("trailer_value"), 
+        col("trailer_email")
+      )))
 
       // Flatten difference (array<struct>) → json string
-      .withColumn("difference_json", to_json(col("difference")))
+      .withColumn("difference_json", to_json(struct(
+        col("difference_old_mode"),
+        col("difference_new_mode"),
+        col("difference_old_path"),
+        col("difference_new_path"),
+        col("difference_old_sha1"),
+        col("difference_new_sha1"),
+        col("difference_old_repo"),
+        col("difference_new_repo")
+      )))
 
       // Drop nested fields
-      .drop("author", "committer", "parent", "trailer", "difference")
+      .drop("author", "committer", "trailer_key", "trailer_value", "trailer_email", "difference_old_mode", "difference_new_mode",
+      "difference_old_path", "difference_new_path", 
+      "difference_old_sha1", "difference_new_sha1",
+      "difference_old_repo", "difference_new_repo")
   }
 
   def main(args: Array[String]): Unit = {
@@ -52,7 +62,15 @@ object MigrateToPostgres {
     val inputPath    = s"hdfs://localhost:9000/$hdfsInputDir/$tableName.parquet"
 
     println(s"Đang đọc Parquet từ HDFS: $inputPath")
-    val df: DataFrame = spark.read.parquet(inputPath)
+    val df: DataFrame = spark.read
+      .option("mergeSchema", "true")
+      .option("parquet.int96RebaseModeInRead", "CORRECTED")
+      .option("parquet.int96RebaseModeInWrite", "CORRECTED") 
+      .option("parquet.datetimeRebaseModeInRead", "CORRECTED")
+      .option("parquet.datetimeRebaseModeInWrite", "CORRECTED")
+      .option("parquet.enableVectorizedReader", "false")
+      .option("timeZone", "UTC")
+      .parquet(inputPath)
     val flattenedDF = flattenCommitDF(df)(spark)
 
     println("Schema DataFrame:")
@@ -74,6 +92,6 @@ object MigrateToPostgres {
     println(s"[MigrateToPostgres] Đã ghi thành công table '$tableName' vào PostgreSQL.")
 
     spark.stop()
-    // conn.close() // nếu bạn đã gọi getConnection(), nhớ đóng lại
+    conn.close() // nếu bạn đã gọi getConnection(), nhớ đóng lại
   }
 }

@@ -21,7 +21,6 @@ object BigQueryConnection {
    * Nếu không thực sự cần read view, bạn có thể bỏ "viewsEnabled" và "materializationDataset".
    */
   def createSparkSession(): SparkSession = {
-    // Lấy dataset tạm (materialization) từ .env
     val bqTempDataset = AppConfig.get("BQ_MATERIALIZATION_DATASET")
     SparkSession.builder()
       .appName("BigQueryToHadoopToPostgres")
@@ -29,6 +28,13 @@ object BigQueryConnection {
       .config("spark.sql.shuffle.partitions", "10")
       .config("viewsEnabled", "true")
       .config("materializationDataset", bqTempDataset)
+      .config("spark.sql.legacy.parquet.nanosAsLong", "true")
+      .config("spark.sql.parquet.int96RebaseModeInRead", "CORRECTED")
+      .config("spark.sql.parquet.int96RebaseModeInWrite", "CORRECTED")
+      .config("spark.sql.parquet.datetimeRebaseModeInRead", "CORRECTED")
+      .config("spark.sql.parquet.datetimeRebaseModeInWrite", "CORRECTED")
+      .config("spark.sql.parquet.enableVectorizedReader", "false")
+      .config("spark.sql.session.timeZone", "UTC")
       .getOrCreate()
   }
 }
