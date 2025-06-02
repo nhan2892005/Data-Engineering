@@ -22,15 +22,15 @@ libraryDependencies ++= Seq(
     exclude("org.apache.avro", "avro-mapred"),
 
   // Provide a valid avro-mapred:hadoop2 artifact (Maven Central only has 1.10.2-hadoop2)
-  "org.apache.avro" % "avro-mapred" % "1.10.2" classifier "hadoop2",
+  // "org.apache.avro" % "avro-mapred" % "1.10.2" classifier "hadoop2",
 
 
   // PostgreSQL JDBC driver
   "org.postgresql" % "postgresql" % "42.5.1",
 
   // Dotenv to load .env if you use it
-  "io.github.cdimascio" % "java-dotenv" % "5.2.2",
+  "io.github.cdimascio" % "java-dotenv" % "5.2.2"
 
-  "org.apache.hadoop" % "hadoop-client" % "3.3.6",
-  "org.apache.hadoop" % "hadoop-client-runtime" % "3.3.6"
+  // "org.apache.hadoop" % "hadoop-client" % "3.3.6",
+  // "org.apache.hadoop" % "hadoop-client-runtime" % "3.3.6"
 )

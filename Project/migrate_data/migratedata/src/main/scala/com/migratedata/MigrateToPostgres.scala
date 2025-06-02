@@ -2,96 +2,93 @@ package com.migratedata
 
 import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
 
 object MigrateToPostgres {
 
-  def flattenCommitDF(df: DataFrame)(implicit spark: SparkSession): DataFrame = {
+  def convertComplexTypes(df: DataFrame)(implicit spark: SparkSession): DataFrame = {
     import spark.implicits._
+    
+    // Get all columns and their data types
+    val fields = df.schema.fields
+    
+    // Start with the original DataFrame
+    var resultDF = df
+    
+    // Convert each complex type column to JSON
+    fields.foreach { field =>
+      field.dataType match {
+        case _: ArrayType | _: StructType | _: MapType =>
+          resultDF = resultDF.withColumn(
+            s"${field.name}_json", 
+            to_json(col(field.name))
+          )
+        case _ => // Keep simple types as-is
+      }
+    }
 
-    df
-      // Flatten author (struct)
-      .withColumn("author_name", col("author_name"))
-      .withColumn("author_email", col("author_email"))
-      .withColumn("author_time_sec", col("author_time_sec"))
-      .withColumn("author_tz_offset", col("author_tz_offset"))
-      .withColumn("author_date", col("author_date"))
+    // Select all original simple type columns and JSON converted columns
+    val selectExpr = fields.map { field =>
+      field.dataType match {
+        case _: ArrayType | _: StructType | _: MapType =>
+          col(s"${field.name}_json")
+        case _ =>
+          col(field.name)
+      }
+    }
 
-      // Flatten committer (struct)
-      .withColumn("committer_name", col("committer_name"))
-      .withColumn("committer_email", col("committer_email"))
-      .withColumn("committer_time_sec", col("committer_time_sec"))
-      .withColumn("committer_tz_offset", col("committer_tz_offset"))
-      .withColumn("committer_date", col("committer_date"))
-
-      // Flatten trailer (array<struct>) → json string
-      .withColumn("trailer_json", to_json(struct(
-        col("trailer_key"), 
-        col("trailer_value"), 
-        col("trailer_email")
-      )))
-
-      // Flatten difference (array<struct>) → json string
-      .withColumn("difference_json", to_json(struct(
-        col("difference_old_mode"),
-        col("difference_new_mode"),
-        col("difference_old_path"),
-        col("difference_new_path"),
-        col("difference_old_sha1"),
-        col("difference_new_sha1"),
-        col("difference_old_repo"),
-        col("difference_new_repo")
-      )))
-
-      // Drop nested fields
-      .drop("author", "committer", "trailer_key", "trailer_value", "trailer_email", "difference_old_mode", "difference_new_mode",
-      "difference_old_path", "difference_new_path", 
-      "difference_old_sha1", "difference_new_sha1",
-      "difference_old_repo", "difference_new_repo")
+    resultDF.select(selectExpr: _*)
   }
 
   def main(args: Array[String]): Unit = {
-    // 1. Khởi SparkSession (cùng config như DataIngestion)
     val spark: SparkSession = BigQueryConnection.createSparkSession()
 
-    // 2. Lấy thông tin kết nối PostgreSQL (nếu cần để test), tuy nhiên Spark sẽ tự quản Connection
-    //    val conn = PostgresConnection.getConnection()
+    // List of tables from GitHub public dataset
+    val tables = List("commits",
+                      "contents",
+                      "files",
+                      "languages",
+                      "licenses",
+                      "sample_commits",
+                      "sample_contents",
+                      "sample_files",
+                      "sample_repos")
 
-    // 3. Đọc Parquet từ HDFS
-    val tableName    = "sample_commits"
-    val hdfsInputDir = AppConfig.get("HDFS_OUTPUT_DIR") // e.g. "/user/hduser/bigquery_raw"
-    val inputPath    = s"hdfs://localhost:9000/$hdfsInputDir/$tableName.parquet"
+    tables.foreach { tableName =>
+      println(s"Processing table: $tableName")
+      try {
+        // Read from BigQuery public dataset
+        val bq = new BigQueryConnection(spark)
+        val df = bq.readGithubDataset(tableName).repartition(10).cache()
+        
+        // Print schema and sample data
+        println(s"\nSchema for table: $tableName")
+        df.printSchema()
+        println(s"\nSample data for table: $tableName")
+        df.show(5)
+        
+        // Convert complex types to JSON
+        val jsonDF = convertComplexTypes(df)(spark).coalesce(5)
 
-    println(s"Đang đọc Parquet từ HDFS: $inputPath")
-    val df: DataFrame = spark.read
-      .option("mergeSchema", "true")
-      .option("parquet.int96RebaseModeInRead", "CORRECTED")
-      .option("parquet.int96RebaseModeInWrite", "CORRECTED") 
-      .option("parquet.datetimeRebaseModeInRead", "CORRECTED")
-      .option("parquet.datetimeRebaseModeInWrite", "CORRECTED")
-      .option("parquet.enableVectorizedReader", "false")
-      .option("timeZone", "UTC")
-      .parquet(inputPath)
-    val flattenedDF = flattenCommitDF(df)(spark)
+        // Write to PostgreSQL
+        println(s"Writing to PostgreSQL table: $tableName")
+        jsonDF.write
+          .format("jdbc")
+          .option("url", AppConfig.get("POSTGRES_URL"))
+          .option("dbtable", tableName)
+          .option("user", AppConfig.get("POSTGRES_USER"))
+          .option("password", AppConfig.get("POSTGRES_PASSWORD"))
+          .mode(SaveMode.Append)
+          .save()
 
-    println("Schema DataFrame:")
-    flattenedDF.printSchema()
-    println("Show 5 dòng đầu:")
-    flattenedDF.show(5)
-
-    // 4. Ghi DataFrame vào PostgreSQL qua Spark JDBC
-    println(s"Ghi DataFrame vào PostgreSQL, table: $tableName")
-    flattenedDF.write
-      .format("jdbc")
-      .option("url", AppConfig.get("POSTGRES_URL"))       // ví dụ: "jdbc:postgresql://localhost:5432/github_repo"
-      .option("dbtable", tableName)                       // Spark sẽ tự tạo table nếu chưa tồn tại
-      .option("user", AppConfig.get("POSTGRES_USER"))     // e.g. "pnhan_init"
-      .option("password", AppConfig.get("POSTGRES_PASSWORD")) // e.g. "pnhan_pass"
-      .mode(SaveMode.Append) // hoặc Overwrite tùy bạn muốn
-      .save()
-
-    println(s"[MigrateToPostgres] Đã ghi thành công table '$tableName' vào PostgreSQL.")
-
+        println(s"Successfully migrated table: $tableName")
+        // Clear cache
+        df.unpersist()
+      } catch {
+        case e: Exception =>
+          println(s"Error processing table $tableName: ${e.getMessage}")
+      }
+    }
     spark.stop()
-    conn.close() // nếu bạn đã gọi getConnection(), nhớ đóng lại
   }
 }

@@ -3,38 +3,38 @@ package com.migratedata
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 class BigQueryConnection(spark: SparkSession) {
-  /**
-   * Đọc table BigQuery từ project bigquery-public-data, dataset github_repos.
-   * Ví dụ: tableName = "sample_commits" → đọc bigquery-public-data.github_repos.sample_commits
-   */
-  def readTable(tableName: String): DataFrame = {
+  def readTable(tableName: String, dataset: String = "intro", project: String = "bigquery-public-data"): DataFrame = {
     spark.read
       .format("bigquery")
-      .option("table", s"focal-future-456710-g8.intro.$tableName")
+      .option("table", s"$project.$dataset.$tableName")
       .load()
+  }
+
+  def readGithubDataset(tableName: String): DataFrame = {
+    readTable(tableName, dataset = "github_repos", project = "bigquery-public-data")
   }
 }
 
 object BigQueryConnection {
-  /**
-   * Khởi SparkSession đã cấu hình để đọc BigQuery.
-   * Nếu không thực sự cần read view, bạn có thể bỏ "viewsEnabled" và "materializationDataset".
-   */
   def createSparkSession(): SparkSession = {
-    val bqTempDataset = AppConfig.get("BQ_MATERIALIZATION_DATASET")
+    val projectId = AppConfig.get("GOOGLE_CLOUD_PROJECT")
+    val credentialsFile = AppConfig.get("GOOGLE_APPLICATION_CREDENTIALS")
+    
     SparkSession.builder()
-      .appName("BigQueryToHadoopToPostgres")
+      .appName("BigQueryToPostgres")
       .config("spark.master", "local[*]")
-      .config("spark.sql.shuffle.partitions", "10")
+      // Add memory configurations
+      .config("spark.driver.memory", "4g")
+      .config("spark.executor.memory", "4g")
+      .config("spark.memory.offHeap.enabled", "true")
+      .config("spark.memory.offHeap.size", "4g")
+      // BigQuery configs
       .config("viewsEnabled", "true")
-      .config("materializationDataset", bqTempDataset)
-      .config("spark.sql.legacy.parquet.nanosAsLong", "true")
-      .config("spark.sql.parquet.int96RebaseModeInRead", "CORRECTED")
-      .config("spark.sql.parquet.int96RebaseModeInWrite", "CORRECTED")
-      .config("spark.sql.parquet.datetimeRebaseModeInRead", "CORRECTED")
-      .config("spark.sql.parquet.datetimeRebaseModeInWrite", "CORRECTED")
-      .config("spark.sql.parquet.enableVectorizedReader", "false")
-      .config("spark.sql.session.timeZone", "UTC")
+      .config("spark.hadoop.google.cloud.auth.service.account.enable", "true")
+      .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", credentialsFile)
+      .config("spark.sql.extensions", "com.google.cloud.spark.bigquery.BigQuerySparkSessionExtension")
+      .config("materializationDataset", AppConfig.get("BQ_MATERIALIZATION_DATASET"))
+      .config("parentProject", projectId)
       .getOrCreate()
   }
 }
