@@ -1,0 +1,7 @@
+<configuration>
+    <property>
+        <name>mapreduce.framework.name</name>
+        <value>yarn</value>
+        <description>MapReduce sẽ chạy trên YARN.</description>
+    </property>
+</configuration>

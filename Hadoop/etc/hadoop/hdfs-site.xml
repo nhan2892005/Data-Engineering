@@ -1,0 +1,17 @@
+<configuration>
+    <property>
+        <name>dfs.replication</name>
+        <value>1</value>
+        <description>Số bản sao khi chạy pseudo-distributed thường đặt 1.</description>
+    </property>
+    <property>
+        <name>dfs.namenode.name.dir</name>
+        <value>file:///home/hduser/hadoop_data/hdfs/namenode</value>
+        <description>Thư mục lưu metadata của NameNode.</description>
+    </property>
+    <property>
+        <name>dfs.datanode.data.dir</name>
+        <value>file:///home/hduser/hadoop_data/hdfs/datanode</value>
+        <description>Thư mục lưu block dữ liệu ở DataNode.</description>
+    </property>
+</configuration>

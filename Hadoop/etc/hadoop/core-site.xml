@@ -1,0 +1,12 @@
+<configuration>
+    <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://localhost:9000</value>
+        <description>URI của HDFS, cổng mặc định 9000</description>
+    </property>
+    <property>
+        <name>hadoop.tmp.dir</name>
+        <value>/home/your-username/hadoop_tmp</value>
+        <description>Thư mục tạm của Hadoop</description>
+    </property>
+</configuration>
